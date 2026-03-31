@@ -27,18 +27,21 @@ async function main() {
   await asinInput.type(TARGET_ASIN, { delay: 100 });
   await asinInput.press("Enter");
   console.log("Submitted ASIN query...");
-  await page.waitForTimeout(12000);
+  await page.waitForTimeout(2000);
 
-  // Step 1.5: Switch to "反查关键词" tab if needed
-  const keywordTab = page.getByText("反查关键词").first();
-  if (await keywordTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await keywordTab.click();
-    console.log("Switched to '反查关键词' tab");
-    await page.waitForTimeout(8000);
+
+  // Step 2: Scroll down until .check_block is visible, then click select-all
+  const checkBlock = page.locator('.check_block').first();
+  const maxScrollAttempts = 20;
+  for (let i = 0; i < maxScrollAttempts; i++) {
+    if (await checkBlock.isVisible({ timeout: 500 }).catch(() => false)) {
+      break;
+    }
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(500);
   }
-
-  // Step 2: Click select-all checkbox
-  await page.locator('.check_block').first().click();
+  await checkBlock.waitFor({ state: "visible", timeout: 10000 });
+  await checkBlock.click();
   console.log("Clicked select-all checkbox (.check_block)");
   await page.waitForTimeout(2000);
 
