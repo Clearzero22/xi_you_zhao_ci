@@ -11,32 +11,24 @@ const TARGET_ASINS = [
 
 // --- Single ASIN scraping logic ---
 
-async function readClipboard(page: Page): Promise<string | null> {
-  // Strategy 1: navigator.clipboard.readText()
-  const text = await page.evaluate(async () => {
-    try {
-      return await navigator.clipboard.readText();
-    } catch {
-      return null;
-    }
-  });
-  if (text && text.length > 10) return text;
-
-  // Strategy 2: execCommand("paste") fallback
+async function extractTableData(page: Page): Promise<string> {
   return page.evaluate(() => {
-    return new Promise<string | null>((resolve) => {
-      const handler = (e: ClipboardEvent) => {
-        const data = e.clipboardData?.getData("text/plain") ?? null;
-        document.removeEventListener("paste", handler);
-        resolve(data);
-      };
-      document.addEventListener("paste", handler);
-      document.execCommand("paste");
-      setTimeout(() => {
-        document.removeEventListener("paste", handler);
-        resolve(null);
-      }, 3000);
-    });
+    // Find the data table — look for rows with keyword data
+    const rows = document.querySelectorAll('table tbody tr, .el-table__body-wrapper tr, .x-table-body tr');
+    if (rows.length === 0) return "";
+
+    const lines: string[] = [];
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td, .cell');
+      if (cells.length === 0) continue;
+      const texts = Array.from(cells)
+        .map((c) => c.textContent?.trim() ?? "")
+        .filter(Boolean);
+      if (texts.length > 0) {
+        lines.push(texts.join("\t"));
+      }
+    }
+    return lines.join("\n");
   });
 }
 
@@ -71,21 +63,16 @@ async function scrapeAsin(page: Page, asin: string): Promise<string | null> {
     console.log(`[${asin}] Selected all rows`);
     await page.waitForTimeout(2000);
 
-    // Click batch copy
-    await page.getByText('批量复制').first().click();
-    console.log(`[${asin}] Clicked batch copy`);
-    await page.waitForTimeout(2000);
-
-    // Read clipboard
-    const clipboardText = await readClipboard(page);
-    if (clipboardText && clipboardText.length > 10) {
+    // Extract table data from DOM
+    const tableData = await extractTableData(page);
+    if (tableData.length > 0) {
       const outPath = `./keywords-${asin}.txt`;
-      writeFileSync(outPath, clipboardText, "utf-8");
-      console.log(`[${asin}] Saved: ${outPath} (${(clipboardText.length / 1024).toFixed(1)} KB)`);
-      return clipboardText;
+      writeFileSync(outPath, tableData, "utf-8");
+      console.log(`[${asin}] Saved: ${outPath} (${(tableData.length / 1024).toFixed(1)} KB, ${tableData.split('\n').length} rows)`);
+      return tableData;
     }
 
-    console.log(`[${asin}] Failed to read clipboard`);
+    console.log(`[${asin}] Failed to extract table data`);
     return null;
   } catch (err) {
     console.error(`[${asin}] Error:`, err);
@@ -95,46 +82,6 @@ async function scrapeAsin(page: Page, asin: string): Promise<string | null> {
 
 // --- Concurrency control (semaphore) ---
 
-async function runWithConcurrency<T>(
-  tasks: Array<() => Promise<T>>,
-  limit: number,
-): Promise<PromiseSettledResult<T>[]> {
-  const results: PromiseSettledResult<T>[] = [];
-  const executing: Promise<void>[] = [];
-
-  for (const task of tasks) {
-    const p = task().then(
-      (value) => {
-        results.push({ status: "fulfilled", value });
-      },
-      (reason) => {
-        results.push({ status: "rejected", reason });
-      },
-    );
-
-    executing.push(p);
-
-    if (executing.length >= limit) {
-      await Promise.race(executing);
-      // Remove completed promises
-      for (let i = executing.length - 1; i >= 0; i--) {
-        // Re-check: if a promise settled, remove it
-        // We use a trick: race already resolved, so at least one is done
-        break;
-      }
-      // Clear settled promises from the array
-      const settled = executing.filter((e) => {
-        // Can't easily check, so we use a different approach
-        return false;
-      });
-    }
-  }
-
-  await Promise.all(executing);
-  return results;
-}
-
-// Better semaphore implementation
 function semaphore(limit: number) {
   let running = 0;
   const queue: Array<() => void> = [];
