@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>关键词数据查看器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    .header { background: #fff; padding: 16px 24px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; gap: 16px; }
+    .header h1 { font-size: 18px; }
+    .header input[type="file"] { font-size: 14px; }
+    .stats { padding: 12px 24px; background: #fff; border-bottom: 1px solid #e0e0e0; font-size: 13px; color: #666; display: none; }
+    .toolbar { padding: 12px 24px; background: #fff; border-bottom: 1px solid #e0e0e0; display: none; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .toolbar input[type="text"] { padding: 6px 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 14px; width: 240px; }
+    .toolbar input[type="text"]:focus { outline: none; border-color: #409eff; }
+    .toolbar select { padding: 6px 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 14px; }
+    .container { padding: 0 24px 24px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 16px; font-size: 13px; }
+    th { background: #fafafa; position: sticky; top: 0; z-index: 1; font-weight: 600; text-align: left; }
+    th, td { padding: 8px 12px; border: 1px solid #eee; white-space: nowrap; }
+    tr:hover { background: #f0f7ff; }
+    .empty { text-align: center; padding: 80px 24px; color: #999; font-size: 15px; }
+    .pagination { padding: 12px 24px; background: #fff; border-top: 1px solid #e0e0e0; display: none; justify-content: center; gap: 8px; align-items: center; font-size: 13px; }
+    .pagination button { padding: 4px 10px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; cursor: pointer; font-size: 13px; }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination button.active { background: #409eff; color: #fff; border-color: #409eff; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>关键词数据查看器</h1>
+    <input type="file" id="fileInput" accept=".csv,.txt" />
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar" id="toolbar">
+    <input type="text" id="searchInput" placeholder="搜索关键词..." />
+    <select id="colSelect"><option value="-1">所有列</option></select>
+    <span id="filterInfo" style="font-size:13px;color:#999;"></span>
+  </div>
+  <div class="container" id="container">
+    <div class="empty">选择 CSV 文件以查看数据</div>
+  </div>
+  <div class="pagination" id="pagination"></div>
+
+  <script>
+    const PAGE_SIZE = 50;
+    let headers = [];
+    let allRows = [];
+    let filteredRows = [];
+    let currentPage = 1;
+
+    const fileInput = document.getElementById('fileInput');
+    const statsEl = document.getElementById('stats');
+    const toolbarEl = document.getElementById('toolbar');
+    const containerEl = document.getElementById('container');
+    const paginationEl = document.getElementById('pagination');
+    const searchInput = document.getElementById('searchInput');
+    const colSelect = document.getElementById('colSelect');
+    const filterInfo = document.getElementById('filterInfo');
+
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let cell = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') { cell += '"'; i++; }
+            else { inQuotes = false; }
+          } else { cell += ch; }
+        } else {
+          if (ch === '"') { inQuotes = true; }
+          else if (ch === ',') { row.push(cell.trim()); cell = ''; }
+          else if (ch === '\n') {
+            if (text[i - 1] === '\r') { /* skip */ }
+            row.push(cell.trim());
+            if (row.some(c => c)) rows.push(row);
+            row = []; cell = '';
+          } else { cell += ch; }
+        }
+      }
+      row.push(cell.trim());
+      if (row.some(c => c)) rows.push(row);
+      return rows;
+    }
+
+    function renderTable() {
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const end = Math.min(start + PAGE_SIZE, filteredRows.length);
+      const pageRows = filteredRows.slice(start, end);
+
+      let html = '<table><thead><tr>';
+      html += '<th>#</th>';
+      headers.forEach((h, i) => { html += `<th>${h}</th>`; });
+      html += '</tr></thead><tbody>';
+
+      pageRows.forEach((row, i) => {
+        html += '<tr>';
+        html += `<td>${start + i + 1}</td>`;
+        row.forEach(cell => { html += `<td>${cell}</td>`; });
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      containerEl.innerHTML = html;
+      renderPagination();
+    }
+
+    function renderPagination() {
+      const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
+      if (totalPages <= 1) { paginationEl.style.display = 'none'; return; }
+      paginationEl.style.display = 'flex';
+
+      let html = `<button ${currentPage <= 1 ? 'disabled' : ''} onclick="goPage(${currentPage - 1})">上一页</button>`;
+
+      const range = [];
+      for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+          range.push(i);
+        } else if (range[range.length - 1] !== '...') {
+          range.push('...');
+        }
+      }
+      range.forEach(p => {
+        if (p === '...') { html += '<span>...</span>'; }
+        else { html += `<button class="${p === currentPage ? 'active' : ''}" onclick="goPage(${p})">${p}</button>`; }
+      });
+
+      html += `<button ${currentPage >= totalPages ? 'disabled' : ''} onclick="goPage(${currentPage + 1})">下一页</button>`;
+      html += `<span style="margin-left:12px;color:#666;">${currentPage} / ${totalPages} 页，共 ${filteredRows.length} 条</span>`;
+      paginationEl.innerHTML = html;
+    }
+
+    window.goPage = function(p) { currentPage = p; renderTable(); window.scrollTo(0, 0); };
+
+    function filterRows() {
+      const keyword = searchInput.value.toLowerCase();
+      const colIdx = parseInt(colSelect.value);
+      currentPage = 1;
+
+      if (!keyword) { filteredRows = allRows; }
+      else {
+        filteredRows = allRows.filter(row => {
+          const targets = colIdx === -1 ? row : [row[colIdx]];
+          return targets.some(cell => (cell || '').toLowerCase().includes(keyword));
+        });
+      }
+
+      filterInfo.textContent = keyword ? `找到 ${filteredRows.length} / ${allRows.length} 条` : '';
+      renderTable();
+    }
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const parsed = parseCSV(ev.target.result);
+        headers = parsed[0] || [];
+        allRows = parsed.slice(1).filter(r => r.length === headers.length);
+        filteredRows = allRows;
+        currentPage = 1;
+
+        statsEl.textContent = `文件: ${file.name} | 列数: ${headers.length} | 行数: ${allRows.length}`;
+        statsEl.style.display = 'block';
+        toolbarEl.style.display = 'flex';
+
+        colSelect.innerHTML = '<option value="-1">所有列</option>';
+        headers.forEach((h, i) => { colSelect.innerHTML += `<option value="${i}">${h}</option>`; });
+
+        renderTable();
+      };
+      reader.readAsText(file);
+    });
+
+    searchInput.addEventListener('input', filterRows);
+    colSelect.addEventListener('change', filterRows);
+  </script>
+</body>
+</html>
