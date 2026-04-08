@@ -5,8 +5,7 @@ const DATA_DIR = "./.chrome-data";
 const CONCURRENCY = 3;
 
 const TARGET_ASINS = [
-  "B0DZFGTCLR",
-  // Add more ASINs here
+  "B0CQXMXJC5"
 ];
 
 // --- Single ASIN scraping logic ---
@@ -25,7 +24,7 @@ async function extractTableData(page: Page): Promise<string> {
         .map((c) => c.textContent?.trim() ?? "")
         .filter(Boolean);
       if (texts.length > 0) {
-        lines.push(texts.join("\t"));
+        lines.push(texts.map((t) => `"${t.replace(/"/g, '""')}"`).join(","));
       }
     }
     return lines.join("\n");
@@ -66,7 +65,7 @@ async function scrapeAsin(page: Page, asin: string): Promise<string | null> {
     // Extract table data from DOM
     const tableData = await extractTableData(page);
     if (tableData.length > 0) {
-      const outPath = `./keywords-${asin}.txt`;
+      const outPath = `./keywords-${asin}.csv`;
       writeFileSync(outPath, tableData, "utf-8");
       console.log(`[${asin}] Saved: ${outPath} (${(tableData.length / 1024).toFixed(1)} KB, ${tableData.split('\n').length} rows)`);
       return tableData;
@@ -111,7 +110,7 @@ async function main() {
   }
 
   const context: BrowserContext = await chromium.launchPersistentContext(DATA_DIR, {
-    headless: true,
+    headless: false,
     viewport: { width: 1280, height: 720 },
     locale: "zh-CN",
     userAgent:

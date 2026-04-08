@@ -43,3 +43,10 @@ api-responses.json
 keywords-dom.json
 keywords-copied.txt
 captured-request.json
+
+# scraped data
+keywords-*.csv
+keywords-*.txt
+keywords_data.json
+keywords_for_feishu.json
+viewer.html
