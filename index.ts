@@ -2,7 +2,7 @@ import { chromium, type Page } from "playwright";
 import { writeFileSync } from "fs";
 
 const DATA_DIR = "./.chrome-data";
-const CONCURRENCY = 3;
+const CONCURRENCY = 5;
 const DB_URL =
   process.env.DATABASE_URL ||
   "postgresql://amazon:password@localhost:5433/amazon_crawler";
